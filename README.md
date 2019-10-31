@@ -14,7 +14,7 @@ java -Xmx100M -jar LightShotServer-VERSION.jar host=example.com port=8080 https=
 
 ### Command line options
 - `host`: Your host name. (String)
-- `port`: Your port. (String)
+- `port`: Your port. (Integer)
 - `https`: Whether to use https or not. (Boolean)
 - `pageValid`: File path of the page which will be shown when a user requests to see an existing (valid) image
 - `pageInvalid`: File path of the page which will be shown when a user requests to see a non existing (invalid) image
