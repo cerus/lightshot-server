@@ -35,6 +35,11 @@ import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.logging.FileHandler;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 public class LightShotServer {
 
@@ -73,6 +78,18 @@ public class LightShotServer {
         pageInvalid = new File(argsList.stream().filter(s -> s.startsWith("pageInvalid=")).findFirst().orElse("").substring(12));
         https = Boolean.parseBoolean(argsList.stream().filter(s -> s.startsWith("https=")).findFirst().orElse("").substring(6));
 
+        System.setProperty("java.util.logging.SimpleFormatter.format","[%1$tF %1$tT] [%4$-7s] %5$s %n");
+        Logger logger = Logger.getLogger(LightShotServer.class.getName());
+        logger.setLevel(Level.ALL);
+        try {
+            new File("logs").mkdir();
+            FileHandler fileHandler = new FileHandler("logs/log-%u.log", 1000 * 1000 * 20, 100, true);
+            logger.addHandler(fileHandler);
+        } catch (SecurityException | IOException e1) {
+            e1.printStackTrace();
+            return;
+        }
+
         String pageValidContent;
         String pageInvalidContent;
         try {
@@ -83,11 +100,11 @@ public class LightShotServer {
             return;
         }
 
-        System.out.println("Binding to " + host + ":" + port);
+        logger.info("Binding to " + host + ":" + port);
 
         HttpHandler multipartProcessorHandler = (exchange) -> {
             String requestPath = exchange.getRequestPath();
-            System.out.println("Request: " + requestPath);
+            logger.info("New request: " + requestPath);
 
             if (requestPath.equals("/logo")) {
                 exchange.getResponseHeaders().put(Headers.CONTENT_TYPE, "image/png");
@@ -100,6 +117,7 @@ public class LightShotServer {
                 if (file.exists()) {
                     exchange.getResponseHeaders().put(Headers.CONTENT_TYPE, "image/png");
                     exchange.getResponseSender().send(ByteBuffer.wrap(Files.readAllBytes(file.toPath())));
+                    file.setLastModified(System.currentTimeMillis());
                 } else {
                     exchange.setStatusCode(404);
                 }
@@ -111,6 +129,7 @@ public class LightShotServer {
                 requestPath = requestPath.substring(1);
                 if (file.exists()) {
                     exchange.getResponseSender().send(pageValidContent.replace("${PATH}", requestPath));
+                    file.setLastModified(System.currentTimeMillis());
                 } else {
                     exchange.getResponseSender().send(pageInvalidContent);
                 }
@@ -119,18 +138,18 @@ public class LightShotServer {
 
             FormData attachment = exchange.getAttachment(FormDataParser.FORM_DATA);
             if (attachment == null) {
-                System.out.println("No attachment found");
+                logger.warning("No attachment found");
                 exchange.getResponseSender().send(pageInvalidContent);
                 return;
             }
             if (!attachment.contains("image")) {
-                System.out.println("Form data does not have image");
+                logger.warning("Form data does not have image");
                 exchange.getResponseSender().send(pageInvalidContent);
                 return;
             }
 
             String path = UUID.randomUUID().toString().replace("-", "");
-            System.out.println("Path: " + path);
+            logger.info("Path: " + path);
 
             FormData.FormValue fileValue = attachment.get("image").getFirst();
             Path file = fileValue.getPath();
@@ -139,7 +158,7 @@ public class LightShotServer {
             ImageIO.write(read, "png", new File(path + ".png"));
 
             String url = "http" + (https ? "s" : "") + "://" + host + "/" + path;
-            System.out.println(url);
+            logger.info(url);
             exchange.getResponseSender().send(String.format("<response>\n<status>success</status>\n<url>%s" +
                     "</url>\n<thumb>%s</thumb>\n</response>", url, url));
         };
@@ -153,6 +172,16 @@ public class LightShotServer {
                 ).setNext(multipartProcessorHandler))
                 .build();
         undertow.start();
+
+        Executors.newSingleThreadScheduledExecutor().scheduleAtFixedRate(() -> {
+            for(File file : new File(".").listFiles()) {
+                if(!file.getName().endsWith(".png")) return;
+                if(file.getName().startsWith(".")) return;
+                if(System.currentTimeMillis() - file.lastModified() < TimeUnit.DAYS.toMillis(28)) return;
+                file.delete();
+                logger.info("Deleted unused file '"+file.getName()+"'");
+            }
+        }, 2, 10, TimeUnit.MINUTES);
     }
 
 }
