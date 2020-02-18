@@ -32,6 +32,8 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.BasicFileAttributes;
+import java.nio.file.attribute.FileTime;
 import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
@@ -49,7 +51,9 @@ public class LightShotServer {
         File pageValid;
         File pageInvalid;
         boolean https;
+        boolean logConnections;
 
+        // Checking if all arguments are set
         List<String> argsList = Arrays.asList(args);
         if (argsList.stream().noneMatch(s -> s.startsWith("host="))) {
             System.out.println("Please specify host (e.g. host=cerus-dev.de)");
@@ -72,12 +76,33 @@ public class LightShotServer {
             return;
         }
 
-        host = argsList.stream().filter(s -> s.startsWith("host=")).findFirst().orElse("").substring(5);
-        port = Integer.parseInt(argsList.stream().filter(s -> s.startsWith("port=")).findFirst().orElse("").substring(5));
-        pageValid = new File(argsList.stream().filter(s -> s.startsWith("pageValid=")).findFirst().orElse("").substring(10));
-        pageInvalid = new File(argsList.stream().filter(s -> s.startsWith("pageInvalid=")).findFirst().orElse("").substring(12));
-        https = Boolean.parseBoolean(argsList.stream().filter(s -> s.startsWith("https=")).findFirst().orElse("").substring(6));
+        // Parsing arguments
+        host = argsList.stream()
+                .filter(s -> s.startsWith("host="))
+                .findFirst()
+                .orElse("").substring(5);
+        port = Integer.parseInt(argsList.stream()
+                .filter(s -> s.startsWith("port="))
+                .findFirst()
+                .orElse("").substring(5));
+        pageValid = new File(argsList.stream()
+                .filter(s -> s.startsWith("pageValid="))
+                .findFirst()
+                .orElse("").substring(10));
+        pageInvalid = new File(argsList.stream()
+                .filter(s -> s.startsWith("pageInvalid="))
+                .findFirst()
+                .orElse("").substring(12));
+        https = Boolean.parseBoolean(argsList.stream()
+                .filter(s -> s.startsWith("https="))
+                .findFirst()
+                .orElse("").substring(6));
+        logConnections = Boolean.parseBoolean(argsList.stream()
+                .filter(s -> s.startsWith("logCons="))
+                .findFirst()
+                .orElse("logCons=false").substring(8));
 
+        // Initializing logger
         System.setProperty("java.util.logging.SimpleFormatter.format","[%1$tF %1$tT] [%4$-7s] %5$s %n");
         Logger logger = Logger.getLogger(LightShotServer.class.getName());
         logger.setLevel(Level.ALL);
@@ -90,6 +115,7 @@ public class LightShotServer {
             return;
         }
 
+        // Initializing "valid" and "invalid" page
         String pageValidContent;
         String pageInvalidContent;
         try {
@@ -102,67 +128,87 @@ public class LightShotServer {
 
         logger.info("Binding to " + host + ":" + port);
 
+        // Building the http handler
         HttpHandler multipartProcessorHandler = (exchange) -> {
             String requestPath = exchange.getRequestPath();
-            logger.info("New request: " + requestPath);
 
+            // Endpoint /logo
+            // Sends the website logo (.logo.png)
             if (requestPath.equals("/logo")) {
                 exchange.getResponseHeaders().put(Headers.CONTENT_TYPE, "image/png");
                 exchange.getResponseSender().send(ByteBuffer.wrap(Files.readAllBytes(new File(".logo.png").toPath())));
                 return;
             }
+
+            // Endpoint /file
+            // Checks if the image exists and sends the image if it does.
             if (requestPath.startsWith("/file/")) {
                 requestPath = requestPath.substring(6);
                 File file = new File(requestPath.replace("/", "").replace("\\", "") + ".png");
+
                 if (file.exists()) {
                     exchange.getResponseHeaders().put(Headers.CONTENT_TYPE, "image/png");
                     exchange.getResponseSender().send(ByteBuffer.wrap(Files.readAllBytes(file.toPath())));
-                    file.setLastModified(System.currentTimeMillis());
+                    setLastModifiedToNow(file);
                 } else {
                     exchange.setStatusCode(404);
                 }
                 return;
             }
+
+            // Endpoint /
+            // Same as /file but with a page wrapped around the image.
             if (!requestPath.equals("/") && !requestPath.startsWith("/upload/")) {
-//                requestPath = requestPath.substring(1, requestPath.endsWith("/") ? requestPath.length() - 1 : requestPath.length());
                 File file = new File(requestPath.replace("/", "").replace("\\", "") + ".png");
                 requestPath = requestPath.substring(1);
+
                 if (file.exists()) {
                     exchange.getResponseSender().send(pageValidContent.replace("${PATH}", requestPath));
-                    file.setLastModified(System.currentTimeMillis());
+                    setLastModifiedToNow(file);
                 } else {
                     exchange.getResponseSender().send(pageInvalidContent);
                 }
                 return;
             }
 
+            if(!requestPath.startsWith("/upload/")) {
+                exchange.setStatusCode(404);
+                return;
+            }
+
+            // Endpoint /upload
+            // Handles the image uploading.
+
+            // Parsing the supplied form data
             FormData attachment = exchange.getAttachment(FormDataParser.FORM_DATA);
             if (attachment == null) {
-                logger.warning("No attachment found");
                 exchange.getResponseSender().send(pageInvalidContent);
                 return;
             }
+
+            // Checking if the form data contains an image
             if (!attachment.contains("image")) {
-                logger.warning("Form data does not have image");
                 exchange.getResponseSender().send(pageInvalidContent);
                 return;
             }
 
-            String path = UUID.randomUUID().toString().replace("-", "");
-            logger.info("Path: " + path);
-
+            // Parsing the temp file path
             FormData.FormValue fileValue = attachment.get("image").getFirst();
             Path file = fileValue.getPath();
 
+            // Generating a key to store the image, reading the temp image and writing it to the key
+            String path = UUID.randomUUID().toString().replace("-", "");
             BufferedImage read = ImageIO.read(file.toFile());
             ImageIO.write(read, "png", new File(path + ".png"));
 
+            // Sending "success" data to the Lightshot client
             String url = "http" + (https ? "s" : "") + "://" + host + "/" + path;
             logger.info(url);
             exchange.getResponseSender().send(String.format("<response>\n<status>success</status>\n<url>%s" +
                     "</url>\n<thumb>%s</thumb>\n</response>", url, url));
         };
 
+        // Building the webserver
         Undertow undertow = Undertow.builder()
                 .addHttpListener(port, host)
                 .setHandler(new EagerFormParsingHandler(
@@ -173,6 +219,7 @@ public class LightShotServer {
                 .build();
         undertow.start();
 
+        // Starting the file cleaner
         Executors.newSingleThreadScheduledExecutor().scheduleAtFixedRate(() -> {
             for(File file : new File(".").listFiles()) {
                 if(!file.getName().endsWith(".png")) return;
@@ -182,6 +229,15 @@ public class LightShotServer {
                 logger.info("Deleted unused file '"+file.getName()+"'");
             }
         }, 2, 10, TimeUnit.MINUTES);
+
+        logger.info("Server initialized");
     }
 
+    private static void setLastModifiedToNow(File file) {
+        try {
+            Files.setLastModifiedTime(file.toPath(), FileTime.fromMillis(System.currentTimeMillis()));
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
 }
