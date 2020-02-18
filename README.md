@@ -16,8 +16,9 @@ java -Xmx100M -jar LightShotServer-VERSION.jar host=example.com port=8080 https=
 - `host`: Your host name. (String)
 - `port`: Your port. (Integer)
 - `https`: Whether to use https or not. (Boolean)
-- `pageValid`: File path of the page which will be shown when a user requests to see an existing (valid) image
-- `pageInvalid`: File path of the page which will be shown when a user requests to see a non existing (invalid) image
+- `pageValid`: File path of the page which will be shown when a user requests to see an existing (valid) image (String)
+- `pageInvalid`: File path of the page which will be shown when a user requests to see a non existing (invalid) image (String)
+- `logCons`: (Optional) Sets whether connections should be logged or not (Boolean)
 
 ## How do I use this (client side)?
 1. You need to have the Lightshot tool installed.
