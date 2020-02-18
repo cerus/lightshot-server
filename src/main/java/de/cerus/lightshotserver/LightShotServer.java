@@ -132,6 +132,10 @@ public class LightShotServer {
         HttpHandler multipartProcessorHandler = (exchange) -> {
             String requestPath = exchange.getRequestPath();
 
+            if(logConnections) {
+                logger.info("New connection from " + exchange.getSourceAddress().getHostString() + " on "+requestPath);
+            }
+
             // Endpoint /logo
             // Sends the website logo (.logo.png)
             if (requestPath.equals("/logo")) {
@@ -225,6 +229,7 @@ public class LightShotServer {
                 if(!file.getName().endsWith(".png")) return;
                 if(file.getName().startsWith(".")) return;
                 if(System.currentTimeMillis() - file.lastModified() < TimeUnit.DAYS.toMillis(28)) return;
+
                 file.delete();
                 logger.info("Deleted unused file '"+file.getName()+"'");
             }
