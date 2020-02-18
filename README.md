@@ -5,7 +5,7 @@ By Cerus
 This is a custom server for the screen shot tool [Lightshot](https://app.prntscr.com/en/index.html).
 
 ## How do I install this?
-Download the latest build [here](http://jenkins.cerus-dev.de/job/lightshot-server/lastSuccessfulBuild/), unzip it and run the jar file.
+Download the latest build [here](https://github.com/RealCerus/lightshot-server/releases/latest) and run the jar file.
 
 Example command line arguments:
 ```
