@@ -1,5 +1,5 @@
 # Custom Lightshot server
-By Cerus
+<a href="https://www.buymeacoffee.com/Cerus" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/default-yellow_img.png" alt="Buy Me A Coffee" style="height: 51px !important;width: 217px !important;" ></a>
 
 ## What is this?
 This is a custom server for the screen shot tool [Lightshot](https://app.prntscr.com/en/index.html).
